@@ -21,7 +21,9 @@
         public var body: some View {
             VStack(spacing: 0) {
                 header
-                if let destination = state.destination, let content = destinationContent?(destination) {
+                if state.apiProvider.isPresented {
+                    ClaudeBYOKSettingsView(state: state.apiProvider) { action(.apiProvider($0)) }
+                } else if let destination = state.destination, let content = destinationContent?(destination) {
                     content
                 } else if state.destination == .profile {
                     profile
@@ -71,9 +73,12 @@
                         get: { state.instructionsDraft != nil }, set: { if !$0 { action(.cancelInstructions) } })
                 ) { instructionsEditor }
         }
+        private var atRoot: Bool { state.destination == nil && !state.apiProvider.isPresented }
         private var header: some View {
             ZStack {
-                if state.destination == .sharedLinks, let snapshot = state.sharedLinks.selected {
+                if state.apiProvider.isPresented {
+                    Text("API provider").font(.system(size: 17, weight: .semibold))
+                } else if state.destination == .sharedLinks, let snapshot = state.sharedLinks.selected {
                     VStack(spacing: 3) {
                         Text(snapshot.title).font(.system(size: 15, weight: .semibold)).lineLimit(1)
                         Text(snapshot.byline).font(.system(size: 13.3)).foregroundStyle(ClaudePalette.secondary)
@@ -94,9 +99,11 @@
                 }
                 HStack {
                     Button {
-                        if state.destination == nil {
+                        if atRoot {
                             action(.close)
                             dismiss()
+                        } else if state.apiProvider.isPresented {
+                            action(.apiProvider(.back))
                         } else if state.destination == .connectors {
                             action(.connector(.back))
                         } else if state.destination == .memoryFiles {
@@ -107,10 +114,10 @@
                             action(.back)
                         }
                     } label: {
-                        Image(systemName: state.destination == nil ? "xmark" : "chevron.left").font(
+                        Image(systemName: atRoot ? "xmark" : "chevron.left").font(
                             .system(size: 21, weight: .light)
                         ).frame(width: 44, height: 44)
-                    }.glassEffect(in: .circle).accessibilityLabel(state.destination == nil ? "Close settings" : "Back")
+                    }.glassEffect(in: .circle).accessibilityLabel(atRoot ? "Close settings" : "Back")
                         .accessibilityIdentifier("settings.back")
                     Spacer()
                     if state.destination == .connectors, state.connectors.connector == nil {
@@ -160,7 +167,7 @@
                                 Image(systemName: "info").font(.system(size: 21)).frame(width: 50, height: 44)
                             }.accessibilityLabel("Usage information").accessibilityIdentifier("settings.usage.info")
                         }.glassEffect(in: .capsule)
-                    } else if state.destination == nil {
+                    } else if atRoot {
                         Menu {
                             if !state.versionLabel.isEmpty {
                                 Text(state.versionLabel)
@@ -234,6 +241,23 @@
                         settingsRow(.permissions, symbol: "switch.2")
                         rowDivider
                         settingsRow(.voice, symbol: "waveform")
+                        rowDivider
+                        Button {
+                            action(.apiProvider(.open))
+                        } label: {
+                            HStack(spacing: 14) {
+                                Image(systemName: "key").font(.system(size: 20, weight: .light)).frame(width: 26)
+                                    .foregroundStyle(ClaudePalette.ink.opacity(0.75))
+                                Text("API provider").frame(maxWidth: .infinity, alignment: .leading)
+                                if !state.apiProvider.statusSummary.isEmpty {
+                                    Text(state.apiProvider.statusSummary).foregroundStyle(ClaudePalette.secondary)
+                                }
+                                Image(systemName: "chevron.right").font(.system(size: 15)).foregroundStyle(
+                                    ClaudePalette.secondary)
+                            }.font(.system(size: 17)).foregroundStyle(ClaudePalette.ink).padding(.horizontal, 16).frame(
+                                height: 51
+                            ).contentShape(Rectangle())
+                        }.buttonStyle(.plain).accessibilityIdentifier("settings.route.API provider")
                         rowDivider
                         Toggle(isOn: Binding(get: { state.hapticsEnabled }, set: { action(.setHaptics($0)) })) {
                             Label("Haptic feedback", systemImage: "iphone.gen3.radiowaves.left.and.right").font(

@@ -56,6 +56,7 @@ public enum ClaudeSettingsInfoLink: String, Equatable, Sendable, CaseIterable {
     case usage(ClaudeUsageAction)
     case privacy(ClaudePrivacyAction)
     case timeFocus(ClaudeTimeFocusAction)
+    case apiProvider(ClaudeBYOKAction)
     case setNotification(ClaudeNotificationPreference, Bool)
     case setHaptics(Bool), setAppearance(ClaudeAppearance)
     case requestDeleteAccount, requestLogOut, openGuidelines
@@ -73,6 +74,7 @@ public struct ClaudeSettingsState: Equatable, Sendable {
     public var usage = ClaudeUsageState()
     public var privacy = ClaudePrivacyState()
     public var timeFocus = ClaudeTimeFocusState()
+    public var apiProvider = ClaudeBYOKState()
     public var notifications = ClaudeNotificationPreferences()
     public var hapticsEnabled = true
     public var versionLabel = ""
@@ -88,6 +90,7 @@ public struct ClaudeSettingsState: Equatable, Sendable {
             billing.reduce(.dismissNotice)
             memoryFiles.reduce(.close)
             connectors.close()
+            apiProvider.close()
             self.destination = destination
             pendingProfile = nil
             instructionsDraft = nil
@@ -97,6 +100,7 @@ public struct ClaudeSettingsState: Equatable, Sendable {
             billing.reduce(.dismissNotice)
             memoryFiles.reduce(.close)
             connectors.close()
+            apiProvider.close()
             destination = nil
             profileDraft = nil
             pendingProfile = nil
@@ -153,6 +157,18 @@ public struct ClaudeSettingsState: Equatable, Sendable {
             }
         case .codePreference(let action): codePreferences.reduce(action)
         case .timeFocus(let action): timeFocus.reduce(action)
+        case .apiProvider(let action):
+            if case .open = action {
+                sharedLinks.reduce(.back)
+                billing.reduce(.dismissNotice)
+                memoryFiles.reduce(.close)
+                connectors.close()
+                destination = nil
+                profileDraft = nil
+                pendingProfile = nil
+                instructionsDraft = nil
+            }
+            apiProvider.reduce(action)
         case .setNotification(let preference, let enabled): notifications[preference] = enabled
         case .setHaptics(let enabled): hapticsEnabled = enabled
         case .usage, .privacy, .infoLink, .setAppearance, .editPhoto, .chooseAvatar, .requestPhotoLibrary,

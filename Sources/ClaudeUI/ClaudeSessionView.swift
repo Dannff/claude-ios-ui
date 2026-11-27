@@ -464,8 +464,13 @@
                             sheet = .models
                         } label: {
                             HStack(spacing: 3) {
-                                Text(state.model.rawValue)
-                                Text(state.effort.rawValue).foregroundStyle(ClaudePalette.secondary)
+                                if let activeBYOK = state.settings.apiProvider.activeComposerLabels {
+                                    Text(activeBYOK.model).lineLimit(1)
+                                    Text(activeBYOK.provider).foregroundStyle(ClaudePalette.secondary).lineLimit(1)
+                                } else {
+                                    Text(state.model.rawValue)
+                                    Text(state.effort.rawValue).foregroundStyle(ClaudePalette.secondary)
+                                }
                             }.font(.system(size: 14)).padding(.horizontal, 16).frame(height: 36).background(
                                 ClaudePalette.adaptive(light: 0.94, dark: 0.24), in: .capsule)
                         }.accessibilityIdentifier("composer.model")

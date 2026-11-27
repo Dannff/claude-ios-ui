@@ -139,4 +139,59 @@ final class SettingsPreferencesUITests: XCTestCase {
             app.terminate()
         }
     }
+
+    @MainActor func testBYOKProviderPresetKeychainPersistenceAndClear() {
+        let suite = "uitest-byok-" + UUID().uuidString
+        let app = XCUIApplication()
+        app.launchArguments = ["--byok-suite", suite, "--byok-reset"]
+        app.launch()
+        app.buttons["sidebar.open"].tap()
+        app.buttons["sidebar.settings"].tapWhenSettled()
+        let route = app.buttons["settings.route.API provider"]
+        if !route.isHittable { app.scrollViews["settings.root.scroll"].swipeUp() }
+        route.tapWhenSettled()
+        let enabledSwitch = app.switches["settings.byok.enabled"]
+        XCTAssertTrue(enabledSwitch.waitForExistence(timeout: 3))
+        XCTAssertTrue(app.secureTextFields["settings.byok.apiKey"].exists)
+        app.buttons["settings.byok.preset"].tap()
+        XCTAssertTrue(app.buttons["OpenRouter"].waitForExistence(timeout: 3))
+        app.buttons["OpenRouter"].tap()
+        XCTAssertEqual(app.textFields["settings.byok.baseURL"].value as? String, "https://openrouter.ai/api/v1")
+        XCTAssertEqual(app.textFields["settings.byok.model"].value as? String, "anthropic/claude-sonnet-4")
+        app.buttons["settings.byok.toggleKey"].tapWhenSettled()
+        let keyField = app.textFields["settings.byok.apiKey"]
+        XCTAssertTrue(keyField.waitForExistence(timeout: 3))
+        keyField.tapToFocus()
+        keyField.typeTextVerified("sk-test-byok")
+        if !enabledSwitch.isHittable { app.scrollViews["settings.byok.scroll"].swipeDown() }
+        enabledSwitch.tapWhenSettled()
+        XCTAssertEqual(enabledSwitch.value as? String, "1")
+        app.buttons["settings.back"].tap()
+        app.buttons["settings.back"].tapWhenSettled()
+        XCTAssertTrue(app.buttons["composer.model"].waitForExistence(timeout: 3))
+        XCTAssertTrue(app.buttons["composer.model"].label.contains("claude-sonnet-4"))
+        XCTAssertTrue(app.buttons["composer.model"].label.contains("OpenRouter"))
+        app.terminate()
+
+        app.launchArguments = ["--byok-suite", suite]
+        app.launch()
+        XCTAssertTrue(app.buttons["composer.model"].waitForExistence(timeout: 3))
+        XCTAssertTrue(app.buttons["composer.model"].label.contains("OpenRouter"))
+        app.buttons["sidebar.open"].tap()
+        app.buttons["sidebar.settings"].tapWhenSettled()
+        if !route.isHittable { app.scrollViews["settings.root.scroll"].swipeUp() }
+        route.tapWhenSettled()
+        app.buttons["settings.byok.toggleKey"].tapWhenSettled()
+        XCTAssertTrue(keyField.waitForExistence(timeout: 3))
+        XCTAssertEqual(keyField.value as? String, "sk-test-byok")
+        let clearButton = app.buttons["settings.byok.clear"]
+        if !clearButton.isHittable { app.scrollViews["settings.byok.scroll"].swipeUp() }
+        clearButton.tapWhenSettled()
+        if !enabledSwitch.isHittable { app.scrollViews["settings.byok.scroll"].swipeDown() }
+        XCTAssertEqual(enabledSwitch.value as? String, "0")
+        app.buttons["settings.back"].tap()
+        app.buttons["settings.back"].tapWhenSettled()
+        XCTAssertTrue(app.buttons["composer.model"].label.contains("Opus 5.5"))
+        app.terminate()
+    }
 }

@@ -8,12 +8,21 @@ each release notes how many screenshot references were re-recorded.
 
 ## [Unreleased]
 
+### Added
+
+- OpenAI-compatible Bring Your Own Key (BYOK) provider settings (`ClaudeBYOKState`, `ClaudeBYOKConfiguration`,
+  `ClaudeBYOKPreset`, `ClaudeBYOKAction` and `.apiProvider(ClaudeBYOKAction)` on `ClaudeSettingsAction`; adopters
+  switching with `@unknown default` will see a warning for the new case), plus live SSE/JSON completion, model
+  discovery and Keychain API-key storage in `ClaudeUIDemo`.
+
 ### Changed
 
 - The install line in the README and the integration guide now starts new adopters on 0.2.0.
 
 ### Fixed
 
+- CI runs the public API compatibility check inside the existing `macos-26` job instead of requesting a second
+  concurrent `macos-26` runner, and resolves release tags from the parent repository when running in a tagless fork.
 - The accessibility baseline no longer lists the 28 text-size findings that the Notifications settings change in
   0.2.0 resolved, so a regression on that screen is caught again.
 - UI tests wait for an element to stop moving before a tap that directly follows another tap. A tap sent while a

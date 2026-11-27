@@ -28,7 +28,7 @@ env:
 
 jobs:
   checks:
-    name: Format, project sync, unit tests, iOS 26 SDK build
+    name: Format, project sync, unit tests, API check, iOS 26 SDK build
     runs-on: macos-26
     timeout-minutes: 30
     env:
@@ -36,6 +36,8 @@ jobs:
       DEVELOPER_DIR: /Applications/Xcode_26.4.1.app/Contents/Developer
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
 
       - name: Check formatting
         run: swift format lint --strict --recursive --parallel .
@@ -62,24 +64,27 @@ jobs:
             CODE_SIGNING_ALLOWED=NO | tail -n 50
           exit "${PIPESTATUS[0]}"
 
-  api-compat:
-    name: Public API unchanged since the last release
-    runs-on: macos-26
-    timeout-minutes: 20
-    env:
-      DEVELOPER_DIR: /Applications/Xcode_26.4.1.app/Contents/Developer
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          fetch-depth: 0
-
       - name: Compare the public API with the latest tag
         id: diff
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
-          baseline=$(git describe --tags --abbrev=0 origin/main 2>/dev/null || git describe --tags --abbrev=0)
+          baseline=$(git describe --tags --abbrev=0 origin/main 2>/dev/null || git describe --tags --abbrev=0 2>/dev/null || true)
+          if [ -z "$baseline" ]; then
+            parent_url=$(gh api "repos/$GITHUB_REPOSITORY" --jq '.parent.clone_url // empty' 2>/dev/null || true)
+            if [ -n "$parent_url" ]; then
+              git fetch --quiet "$parent_url" 'refs/tags/*:refs/tags/*' 2>/dev/null || true
+              baseline=$(git describe --tags --abbrev=0 origin/main 2>/dev/null || git describe --tags --abbrev=0 2>/dev/null || true)
+            fi
+          fi
+          if [ -z "$baseline" ]; then
+            echo "::notice::No release tags found to compare against; skipping public API check."
+            echo "status=0" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
           echo "Comparing against $baseline"
           set +e
-          swift package diagnose-api-breaking-changes "$baseline" --products ClaudeUI --products ClaudeWidgets | tee api-diff.txt
+          swift package diagnose-api-breaking-changes "$baseline" --products ClaudeUI --products ClaudeWidgets | tee "$RUNNER_TEMP/api-diff.txt"
           status="${PIPESTATUS[0]}"
           set -e
           echo "status=$status" >> "$GITHUB_OUTPUT"
@@ -95,7 +100,7 @@ jobs:
             echo "Push to main: recorded as a warning only."
             exit 0
           fi
-          labels=$(gh pr view "${{ github.event.pull_request.number }}" --json labels --jq '.labels[].name')
+          labels=$(gh pr view "${{ github.event.pull_request.number }}" --repo "$GITHUB_REPOSITORY" --json labels --jq '.labels[].name')
           if echo "$labels" | grep -qx "breaking"; then
             echo "The pull request carries the 'breaking' label; the change is intentional. Make sure CHANGELOG.md and docs/VERSIONING.md cover it."
             exit 0
