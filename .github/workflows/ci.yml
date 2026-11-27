@@ -29,7 +29,8 @@ env:
 jobs:
   checks:
     name: Format, project sync, unit tests, API check, iOS 26 SDK build
-    runs-on: macos-26
+    # Use macos-26-intel (x64) to avoid GitHub's macOS arm64 queue capacity timeouts while keeping Xcode 26.4.1.
+    runs-on: macos-26-intel
     timeout-minutes: 30
     env:
       # The package supports iOS 26, so it must keep building with the iOS 26 SDK.
