@@ -137,9 +137,8 @@ public enum ClaudeHTMLPreviewSupport {
                 let previewable = isPreviewableCode(language: language, content: trimmed)
                 let lineCount = trimmed.split(separator: "\n", omittingEmptySubsequences: false).count
                 guard previewable || lineCount >= 12 else { continue }
-                let lang = (language?.trimmingCharacters(in: .whitespacesAndNewlines)).flatMap {
-                    $0.isEmpty ? nil : $0
-                } ?? (previewable ? "html" : "code")
+                let cleanLang = language?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                let lang = cleanLang.isEmpty ? (previewable ? "html" : "code") : cleanLang
                 let title =
                     previewable
                     ? extractTitle(from: trimmed, language: lang)

@@ -426,7 +426,8 @@
                     {
                         action(.attachPayload(payload))
                         attachedAny = true
-                    } else if let text = String(data: data.prefix(64_000), encoding: .utf8)
+                    } else if let text =
+                        String(data: data.prefix(64_000), encoding: .utf8)
                         ?? String(data: data.prefix(64_000), encoding: .isoLatin1)
                     {
                         let payload = ClaudeAttachmentPayload(

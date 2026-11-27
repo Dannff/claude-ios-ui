@@ -96,8 +96,8 @@ public enum ClaudeDuckDuckGoSearch {
         if let http = response as? HTTPURLResponse, !(200..<300).contains(http.statusCode) {
             throw ClaudeWebSearchError.badResponse(http.statusCode)
         }
-        let raw = String(data: data.prefix(400_000), encoding: .utf8)
-            ?? String(data: data.prefix(400_000), encoding: .isoLatin1) ?? ""
+        let prefixData = data.prefix(400_000)
+        let raw = String(data: prefixData, encoding: .utf8) ?? String(data: prefixData, encoding: .isoLatin1) ?? ""
         return extractReadableWebpage(from: raw, fallbackTitle: url.host ?? url.absoluteString, limit: maxCharacters)
     }
 
