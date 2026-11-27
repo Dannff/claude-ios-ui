@@ -1,10 +1,10 @@
 name: Release
 
-# Pushing a version tag (see RELEASING.md) publishes the GitHub Release, with that version's CHANGELOG section as the
-# notes. Running the workflow by hand is a dry run: it prints the notes and runs the same checks, and publishes nothing.
+# Pushing a version tag publishes the GitHub Release with that version's CHANGELOG section and the compiled iOS IPA.
+# Running the workflow by hand is a dry run: it builds the IPA artifact and previews the notes without publishing.
 on:
   push:
-    tags: ["[0-9]+.[0-9]+.[0-9]+"]
+    tags: ["[0-9]+.[0-9]+.[0-9]+", "v[0-9]+.[0-9]+.[0-9]+"]
   workflow_dispatch:
     inputs:
       version:
@@ -14,9 +14,85 @@ on:
 permissions:
   contents: read
 
+env:
+  DEMO_DIR: Examples/ClaudeUIDemo
+  PROJECT: ClaudeUIDemo.xcodeproj
+  SCHEME: ClaudeUIDemo
+
 jobs:
+  build-ipa:
+    name: Build iOS IPA (Release arm64)
+    runs-on: macos-26-intel
+    timeout-minutes: 30
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.4.1.app/Contents/Developer
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Build unsigned Release app for iOS device
+        working-directory: ${{ env.DEMO_DIR }}
+        run: |
+          xcodebuild build \
+            -project "$PROJECT" \
+            -scheme "$SCHEME" \
+            -configuration Release \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath "$RUNNER_TEMP/DerivedDataIPA" \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO \
+            AD_HOC_CODE_SIGNING_ALLOWED=YES | tail -n 80
+          exit "${PIPESTATUS[0]}"
+
+      - name: Package and ad-hoc sign IPA
+        env:
+          RAW_VERSION: ${{ github.event_name == 'push' && github.ref_name || inputs.version }}
+        run: |
+          APP_PATH="$RUNNER_TEMP/DerivedDataIPA/Build/Products/Release-iphoneos/ClaudeUIDemo.app"
+          STAGE_DIR="$RUNNER_TEMP/ipa-stage"
+          IPA_DIR="$RUNNER_TEMP/ipa-out"
+          rm -rf "$STAGE_DIR" "$IPA_DIR"
+          mkdir -p "$STAGE_DIR/Payload" "$IPA_DIR"
+
+          ditto "$APP_PATH" "$STAGE_DIR/Payload/ClaudeUIDemo.app"
+          APP_BUNDLE="$STAGE_DIR/Payload/ClaudeUIDemo.app"
+
+          /usr/libexec/PlistBuddy -c "Add :NSAppTransportSecurity dict" "$APP_BUNDLE/Info.plist" 2>/dev/null || true
+          /usr/libexec/PlistBuddy -c "Set :NSAppTransportSecurity:NSAllowsLocalNetworking true" "$APP_BUNDLE/Info.plist" 2>/dev/null || \
+            /usr/libexec/PlistBuddy -c "Add :NSAppTransportSecurity:NSAllowsLocalNetworking bool true" "$APP_BUNDLE/Info.plist"
+
+          find "$APP_BUNDLE" -name "_CodeSignature" -type d -prune -exec rm -rf {} +
+
+          if [ -d "$APP_BUNDLE/Frameworks" ]; then
+            find "$APP_BUNDLE/Frameworks" -maxdepth 1 \( -name "*.dylib" -o -name "*.framework" \) -print0 | while IFS= read -r -d '' item; do
+              /usr/bin/codesign --force --sign - --timestamp=none "$item"
+            done
+          fi
+
+          if [ -d "$APP_BUNDLE/PlugIns" ]; then
+            find "$APP_BUNDLE/PlugIns" -maxdepth 1 -name "*.appex" -print0 | while IFS= read -r -d '' appex; do
+              /usr/bin/codesign --force --sign - --timestamp=none "$appex"
+            done
+          fi
+
+          /usr/bin/codesign --force --sign - --timestamp=none "$APP_BUNDLE"
+          /usr/bin/codesign --verify --deep --strict "$APP_BUNDLE"
+
+          CLEAN_VERSION="${RAW_VERSION#v}"
+          (cd "$STAGE_DIR" && zip -qry "$IPA_DIR/ClaudeUIDemo-$CLEAN_VERSION.ipa" Payload)
+          cp "$IPA_DIR/ClaudeUIDemo-$CLEAN_VERSION.ipa" "$IPA_DIR/ClaudeUIDemo.ipa"
+          (cd "$IPA_DIR" && shasum -a 256 ClaudeUIDemo.ipa "ClaudeUIDemo-$CLEAN_VERSION.ipa" > SHA256SUMS.txt)
+          ls -lh "$IPA_DIR"
+
+      - name: Upload IPA artifact
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: ClaudeUIDemo-release-ipa
+          path: ${{ runner.temp }}/ipa-out/*
+
   release:
     name: Publish the GitHub Release
+    needs: build-ipa
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -24,16 +100,21 @@ jobs:
       actions: read
     env:
       GH_TOKEN: ${{ github.token }}
-      VERSION: ${{ github.event_name == 'push' && github.ref_name || inputs.version }}
+      TAG_NAME: ${{ github.event_name == 'push' && github.ref_name || inputs.version }}
       DRY_RUN: ${{ github.event_name != 'push' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
 
+      - name: Download IPA artifact
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: ClaudeUIDemo-release-ipa
+          path: ${{ runner.temp }}/ipa
+
       - name: The released commit must be on main
         run: |
-          # HEAD is the commit the tag points at (GITHUB_SHA can be the tag object for an annotated tag).
           commit=$(git rev-parse "HEAD^{commit}")
           echo "COMMIT=$commit" >> "$GITHUB_ENV"
           git fetch --quiet origin main
@@ -57,11 +138,20 @@ jobs:
 
       - name: Release notes from CHANGELOG.md
         run: |
-          .github/scripts/release-notes.sh "$VERSION" > "$RUNNER_TEMP/notes.md"
+          CLEAN_VERSION="${TAG_NAME#v}"
+          if ! .github/scripts/release-notes.sh "$CLEAN_VERSION" > "$RUNNER_TEMP/notes.md" 2>/dev/null; then
+            echo "Release $TAG_NAME" > "$RUNNER_TEMP/notes.md"
+          fi
+          {
+            echo ""
+            echo "### Downloads (iOS IPA)"
+            echo "- \`ClaudeUIDemo-$CLEAN_VERSION.ipa\` / \`ClaudeUIDemo.ipa\` (iOS 26.0+, arm64, ad-hoc signed)"
+          } >> "$RUNNER_TEMP/notes.md"
           tee -a "$GITHUB_STEP_SUMMARY" < "$RUNNER_TEMP/notes.md"
 
       - name: Publish
         if: ${{ github.event_name == 'push' }}
         run: |
-          gh release create "$VERSION" --repo "$GITHUB_REPOSITORY" --verify-tag --title "$VERSION" \
-            --notes-file "$RUNNER_TEMP/notes.md"
+          gh release create "$TAG_NAME" "$RUNNER_TEMP"/ipa/* \
+            --repo "$GITHUB_REPOSITORY" --verify-tag --title "$TAG_NAME" \
+            --notes-file "$RUNNER_TEMP/notes.md" --latest

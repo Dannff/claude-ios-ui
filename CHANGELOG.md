@@ -22,8 +22,8 @@ each release notes how many screenshot references were re-recorded.
 ### Fixed
 
 - CI runs the public API compatibility check inside the `checks` job on `macos-26-intel` (avoiding GitHub's
-  congested `macos-26` arm64 runner queue) and resolves release tags from the parent repository when running in a
-  tagless fork.
+  congested `macos-26` arm64 runner queue), resolves release tags from the parent repository when running in a
+  tagless fork, builds an ad-hoc signed `ClaudeUIDemo.ipa` (`arm64` Release), and publishes it to GitHub Releases.
 - The accessibility baseline no longer lists the 28 text-size findings that the Notifications settings change in
   0.2.0 resolved, so a regression on that screen is caught again.
 - UI tests wait for an element to stop moving before a tap that directly follows another tap. A tap sent while a
