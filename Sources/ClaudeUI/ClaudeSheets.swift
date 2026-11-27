@@ -1,5 +1,8 @@
 #if canImport(UIKit)
+    import PhotosUI
     import SwiftUI
+    import UIKit
+    import UniformTypeIdentifiers
 
     struct SheetHeader: View {
         let title: String
@@ -24,6 +27,7 @@
             }.frame(height: 58).padding(.horizontal, 16).padding(.top, 7)
         }
     }
+
     struct SheetRow: View {
         let title: String
         var symbol: String?
@@ -66,17 +70,20 @@
                         Image(systemName: "chevron.right").font(.system(size: 15)).foregroundStyle(
                             ClaudePalette.secondary)
                     }
-                }.padding(.horizontal, 16).padding(.vertical, detail == nil ? 14 : 14).contentShape(.rect)
+                }.padding(.horizontal, 16).padding(.vertical, 14).contentShape(.rect)
             }.buttonStyle(.plain)
         }
     }
+
     struct RowGroup<Content: View>: View {
         @ViewBuilder var content: () -> Content
         var body: some View {
             VStack(spacing: 0, content: content).background(ClaudePalette.panel, in: .rect(cornerRadius: 28))
         }
     }
+
     struct RowDivider: View { var body: some View { Divider().padding(.horizontal, 16) } }
+
     struct ClaudeModelSheet: View {
         @Binding var state: SessionState
         let action: (ClaudeAction) -> Void
@@ -109,11 +116,27 @@
                         ).font(.system(size: 14)).foregroundStyle(ClaudePalette.secondary).padding(.horizontal, 16)
                     }.padding(.horizontal, 16)
                 } else {
+                    if let activeBYOK = state.settings.apiProvider.activeComposerLabels {
+                        RowGroup {
+                            SheetRow(
+                                title: activeBYOK.model,
+                                symbol: "bolt.horizontal.circle",
+                                detail: "Active BYOK endpoint: \(activeBYOK.provider)",
+                                checked: true,
+                                badge: "Active"
+                            ) {
+                                closePicker()
+                                action(.settings(.open(.profile)))
+                                action(.settings(.apiProvider(.open)))
+                            }
+                        }.padding(.horizontal, 16)
+                    }
                     RowGroup {
                         ForEach(ClaudeModel.allCases, id: \.self) { model in
                             SheetRow(
                                 title: voiceContext ? model.rawValue.components(separatedBy: " ")[0] : model.rawValue,
-                                detail: model.detail, checked: state.model == model
+                                detail: model.detail,
+                                checked: state.settings.apiProvider.activeComposerLabels == nil && state.model == model
                             ) {
                                 action(.selectModel(model))
                                 closePicker()
@@ -127,10 +150,11 @@
                     }.padding(.horizontal, 16)
                 }
                 Spacer(minLength: 0)
-            }.background(ClaudePalette.background).foregroundStyle(ClaudePalette.ink).presentationDetents([.height(430)]
-            ).presentationDragIndicator(.visible).presentationCornerRadius(38)
+            }.background(ClaudePalette.background).foregroundStyle(ClaudePalette.ink)
+                .presentationDetents([.height(480)]).presentationDragIndicator(.visible).presentationCornerRadius(38)
         }
     }
+
     struct ClaudeAttachmentSheet: View {
         @Binding var state: SessionState
         let mediaContent: (ClaudeMedia, ClaudeMediaPresentation) -> AnyView
@@ -138,19 +162,36 @@
         @Environment(\.dismiss) private var dismiss
         @State private var page = "Add to session"
         @State private var camera = false
-        @State private var pendingCapture: CameraCapture?
+        @State private var systemCamera = false
+        @State private var showingFileImporter = false
+        @State private var selectedPhotoItems: [PhotosPickerItem] = []
+        @State private var importError: String?
+
+        private var activeProjectName: String {
+            guard let id = state.activeProjectID,
+                let proj = state.projects.projects.first(where: { $0.id == id })
+            else { return "None" }
+            return proj.name
+        }
+
+        private var connectedDeviceSummary: String {
+            guard state.deviceEnabled,
+                let first = state.devices.rows.first(where: { $0.status == .connected }) ?? state.devices.rows.first
+            else { return "None" }
+            return first.name
+        }
+
         var body: some View {
             VStack(spacing: 16) {
                 SheetHeader(
-                    title: page, back: page != "Add to session", trailing: page == "Add to session" ? "Photos" : nil,
-                    close: { if page == "Add to session" { dismiss() } else { page = "Add to session" } },
-                    trailingAction: { action(.media(.requestPhotos)) })
+                    title: page, back: page != "Add to session",
+                    close: { if page == "Add to session" { dismiss() } else { page = "Add to session" } })
                 switch page {
                 case "Select mode":
                     RowGroup {
                         SheetRow(
                             title: "Manually approve", symbol: "hand.raised",
-                            detail: "Claude asks before using new tools or opening new sites.",
+                            detail: "Ask before running external actions.",
                             checked: !state.automaticApproval
                         ) {
                             action(.setAutomaticApproval(false))
@@ -159,7 +200,7 @@
                         RowDivider()
                         SheetRow(
                             title: "Automatically approve", symbol: "forward",
-                            detail: "Claude runs on its own and pauses to ask if anything looks unsafe.",
+                            detail: "Allow safe tools like DuckDuckGo search and calculator automatically.",
                             checked: state.automaticApproval
                         ) {
                             action(.setAutomaticApproval(true))
@@ -167,57 +208,102 @@
                         }
                     }.padding(.horizontal, 16)
                 case "Devices":
-                    VStack(alignment: .leading, spacing: 9) {
-                        RowGroup {
-                            SheetRow(
-                                title: "Claude Desktop (macOS)", detail: "Last seen 9 hours ago",
-                                checked: state.deviceEnabled, badge: "Default"
-                            ) { action(.setDeviceEnabled(!state.deviceEnabled)) }
-                        }
-                        Text(
-                            "Starting with your next message, Claude can use the selected computer. Deselect it to work without one."
-                        ).font(.system(size: 14)).foregroundStyle(ClaudePalette.secondary).padding(.horizontal, 16)
-                    }.padding(.horizontal, 16)
-                case "Add to project":
-                    RowGroup {
-                        ForEach(["None", "Design ideas", "Personal projects"], id: \.self) { name in
-                            SheetRow(title: name, symbol: "rectangle.stack") {
-                                if name != "None" { action(.attach(name)) }
-                                dismiss()
+                    if state.devices.rows.isEmpty {
+                        VStack(spacing: 12) {
+                            Image(systemName: "desktopcomputer").font(.system(size: 34, weight: .light))
+                                .foregroundStyle(ClaudePalette.secondary)
+                            Text("No connected computers").font(.system(size: 17, weight: .medium))
+                            Text("Pair a remote computer host to dispatch desktop tasks from your iPhone.")
+                                .font(.system(size: 14)).foregroundStyle(ClaudePalette.secondary)
+                                .multilineTextAlignment(.center).padding(.horizontal, 28)
+                        }.frame(maxWidth: .infinity).padding(.top, 28)
+                    } else {
+                        VStack(alignment: .leading, spacing: 9) {
+                            RowGroup {
+                                ForEach(Array(state.devices.rows.enumerated()), id: \.element.id) { idx, row in
+                                    SheetRow(
+                                        title: row.name,
+                                        detail: row.status == .connected ? "Connected" : nil,
+                                        checked: state.deviceEnabled
+                                    ) { action(.setDeviceEnabled(!state.deviceEnabled)) }
+                                    if idx + 1 < state.devices.rows.count { RowDivider() }
+                                }
                             }
-                            if name != "Personal projects" { RowDivider() }
-                        }
-                    }.padding(.horizontal, 16)
-                case "Photos", "Add files":
-                    VStack(spacing: 16) {
-                        Image(systemName: page == "Add files" ? "doc" : "photo").font(.system(size: 40))
-                            .foregroundStyle(ClaudePalette.secondary)
-                        Text(page == "Camera" ? "Camera preview" : "Choose a sample attachment").font(.title3)
-                        Text("Offline demo • no access to your files or camera").font(.footnote).foregroundStyle(
-                            ClaudePalette.secondary)
-                        Button("Add sample \(page == "Add files" ? "document" : "photo")") {
-                            action(.attach(page == "Add files" ? "Notes.pdf" : "Photo.jpg"))
-                            dismiss()
-                        }.buttonStyle(.borderedProminent).tint(ClaudePalette.orange)
-                    }.frame(maxWidth: .infinity).padding(.top, 40)
+                        }.padding(.horizontal, 16)
+                    }
+                case "Add to project":
+                    ScrollView {
+                        VStack(spacing: 12) {
+                            RowGroup {
+                                SheetRow(
+                                    title: "None", symbol: "xmark.circle",
+                                    checked: state.activeProjectID == nil
+                                ) {
+                                    action(.selectActiveProject(nil))
+                                    dismiss()
+                                }
+                                ForEach(state.projects.projects) { project in
+                                    RowDivider()
+                                    SheetRow(
+                                        title: project.name, symbol: project.icon,
+                                        detail: project.goal.isEmpty ? nil : project.goal,
+                                        checked: state.activeProjectID == project.id
+                                    ) {
+                                        action(.selectActiveProject(project.id))
+                                        dismiss()
+                                    }
+                                }
+                            }
+                            RowGroup {
+                                SheetRow(
+                                    title: "Manage projects…", symbol: "plus.rectangle.on.folder", chevron: true
+                                ) {
+                                    dismiss()
+                                    action(.openProjects)
+                                }
+                            }
+                        }.padding(.horizontal, 16)
+                    }
                 default:
                     ScrollView(.horizontal) {
                         HStack(spacing: 8) {
                             Button {
-                                camera = true
+                                if UIImagePickerController.isSourceTypeAvailable(.camera) {
+                                    systemCamera = true
+                                } else {
+                                    camera = true
+                                }
                             } label: {
                                 VStack(spacing: 7) {
                                     Image(systemName: "camera").font(.system(size: 22))
-                                    Text("Camera").font(.system(size: 17))
-                                }.frame(width: 100, height: 100).background(
-                                    ClaudePalette.panel, in: .rect(cornerRadius: 28))
+                                    Text("Camera").font(.system(size: 15))
+                                }.frame(width: 96, height: 96).background(
+                                    ClaudePalette.panel, in: .rect(cornerRadius: 26))
                             }
+                            PhotosPicker(
+                                selection: $selectedPhotoItems, maxSelectionCount: 4, matching: .images
+                            ) {
+                                VStack(spacing: 7) {
+                                    Image(systemName: "photo.on.rectangle").font(.system(size: 22))
+                                    Text("Photos").font(.system(size: 15))
+                                }.frame(width: 96, height: 96).background(
+                                    ClaudePalette.panel, in: .rect(cornerRadius: 26))
+                            }.accessibilityIdentifier("media.photosPicker")
+                            Button {
+                                showingFileImporter = true
+                            } label: {
+                                VStack(spacing: 7) {
+                                    Image(systemName: "doc.badge.plus").font(.system(size: 22))
+                                    Text("Files").font(.system(size: 15))
+                                }.frame(width: 96, height: 96).background(
+                                    ClaudePalette.panel, in: .rect(cornerRadius: 26))
+                            }.accessibilityIdentifier("media.filesPicker")
                             ForEach(state.media.recent) { item in
                                 Button {
                                     action(.media(.toggleRecent(item.id)))
                                 } label: {
-                                    mediaContent(item, .thumbnail).frame(width: 100, height: 100).clipped().clipShape(
-                                        .rect(cornerRadius: 28)
+                                    mediaContent(item, .thumbnail).frame(width: 96, height: 96).clipped().clipShape(
+                                        .rect(cornerRadius: 26)
                                     )
                                     .overlay(alignment: .topTrailing) {
                                         if state.media.selectedIDs.contains(item.id) {
@@ -233,12 +319,21 @@
                             }
                         }.padding(.horizontal, 16)
                     }.scrollIndicators(.hidden)
+                    if let importError {
+                        Text(importError).font(.footnote).foregroundStyle(ClaudePalette.orange)
+                            .padding(.horizontal, 20)
+                    }
                     RowGroup {
-                        SheetRow(title: "Add files", symbol: "doc.badge.arrow.up") { page = "Add files" }
+                        SheetRow(
+                            title: "DuckDuckGo Web Search", symbol: "globe",
+                            value: state.webSearchEnabled ? "On" : "Auto",
+                            checked: state.webSearchEnabled
+                        ) { action(.toggleWebSearch) }
                         RowDivider()
-                        SheetRow(title: "Add to project", symbol: "rectangle.stack", value: "None", chevron: true) {
-                            page = "Add to project"
-                        }
+                        SheetRow(
+                            title: "Project context", symbol: "rectangle.stack",
+                            value: activeProjectName, chevron: true
+                        ) { page = "Add to project" }
                     }.padding(.horizontal, 16)
                     RowGroup {
                         SheetRow(
@@ -248,47 +343,168 @@
                         RowDivider()
                         SheetRow(
                             title: "Devices", symbol: "desktopcomputer",
-                            value: state.deviceEnabled ? "Claude Desktop (…)" : "None", chevron: true
+                            value: connectedDeviceSummary, chevron: true
                         ) { page = "Devices" }
                     }.padding(.horizontal, 16)
                 }
                 Spacer(minLength: 0)
-            }.background(ClaudePalette.background).foregroundStyle(ClaudePalette.ink).presentationDetents([.height(430)]
-            ).presentationDragIndicator(.visible).presentationCornerRadius(38)
+            }.background(ClaudePalette.background).foregroundStyle(ClaudePalette.ink)
+                .presentationDetents([.height(455)]).presentationDragIndicator(.visible).presentationCornerRadius(38)
                 .overlay(alignment: .bottom) {
                     if page == "Add to session", !state.media.selected.isEmpty {
                         Button {
                             action(.media(.attachSelected))
                             dismiss()
                         } label: {
-                            Text(
-                                "Attach \(state.media.selected.count) \(state.media.selected.count == 1 ? "photo" : "photos")"
-                            ).font(.system(size: 16, weight: .medium)).frame(maxWidth: .infinity).frame(height: 46)
+                            let count = state.media.selected.count
+                            Text("Attach \(count) \(count == 1 ? "photo" : "photos")")
+                                .font(.system(size: 16, weight: .medium)).frame(maxWidth: .infinity).frame(height: 46)
                                 .foregroundStyle(ClaudePalette.background).background(ClaudePalette.ink, in: .capsule)
                         }.padding(.horizontal, 16).padding(.bottom, 16).accessibilityIdentifier("media.attachSelected")
                     }
                 }
-                .onAppear { action(.media(.beginSelection)) }.onDisappear { action(.media(.cancelSelection)) }
-                .fullScreenCover(
-                    isPresented: $camera,
-                    onDismiss: {
-                        if let capture = pendingCapture {
-                            action(.attach(capture.mode == .photo ? "Camera photo.jpg" : "Camera video.mov"))
-                            pendingCapture = nil
-                            dismiss()
-                        }
+                .onAppear { action(.media(.beginSelection)) }
+                .onDisappear { action(.media(.cancelSelection)) }
+                .onChange(of: selectedPhotoItems) { _, newItems in
+                    guard !newItems.isEmpty else { return }
+                    Task {
+                        await loadPickedPhotos(newItems)
+                        selectedPhotoItems = []
+                        dismiss()
                     }
-                ) {
+                }
+                .fileImporter(
+                    isPresented: $showingFileImporter,
+                    allowedContentTypes: [.plainText, .sourceCode, .json, .xml, .html, .commaSeparatedText, .data],
+                    allowsMultipleSelection: true
+                ) { result in
+                    handleImportedFiles(result)
+                }
+                .fullScreenCover(isPresented: $systemCamera) {
+                    ClaudeSystemCameraPicker { image in
+                        let stamp = Int(Date().timeIntervalSince1970)
+                        if let payload = Self.encodeImagePayload(image, fileName: "Camera-\(stamp).jpg") {
+                            action(.attachPayload(payload))
+                        }
+                        systemCamera = false
+                        dismiss()
+                    } onCancel: {
+                        systemCamera = false
+                    }
+                }
+                .fullScreenCover(isPresented: $camera) {
                     ClaudeCameraView(
                         onCancel: { camera = false },
-                        onCapture: { capture in
-                            pendingCapture = capture
-                            camera = false
-                        }
+                        onCapture: { _ in camera = false }
                     ) { SyntheticCameraPreview() }
                 }
         }
+
+        @MainActor
+        private func loadPickedPhotos(_ items: [PhotosPickerItem]) async {
+            for (idx, item) in items.enumerated() {
+                guard let data = try? await item.loadTransferable(type: Data.self),
+                    let image = UIImage(data: data),
+                    let payload = Self.encodeImagePayload(image, fileName: "Photo-\(idx + 1).jpg")
+                else { continue }
+                action(.attachPayload(payload))
+            }
+        }
+
+        private func handleImportedFiles(_ result: Result<[URL], Error>) {
+            switch result {
+            case .failure(let error):
+                importError = error.localizedDescription
+            case .success(let urls):
+                var attachedAny = false
+                for url in urls {
+                    let accessed = url.startAccessingSecurityScopedResource()
+                    defer { if accessed { url.stopAccessingSecurityScopedResource() } }
+                    guard let data = try? Data(contentsOf: url) else { continue }
+                    let name = url.lastPathComponent
+                    if let image = UIImage(data: data),
+                        let payload = Self.encodeImagePayload(image, fileName: name)
+                    {
+                        action(.attachPayload(payload))
+                        attachedAny = true
+                    } else if let text =
+                        String(data: data.prefix(64_000), encoding: .utf8)
+                        ?? String(data: data.prefix(64_000), encoding: .isoLatin1)
+                    {
+                        let payload = ClaudeAttachmentPayload(
+                            fileName: name, kind: .textFile, mimeType: "text/plain", textContent: text)
+                        action(.attachPayload(payload))
+                        attachedAny = true
+                    }
+                }
+                if attachedAny {
+                    dismiss()
+                } else {
+                    importError = "Unsupported or unreadable file format."
+                }
+            }
+        }
+
+        static func encodeImagePayload(_ image: UIImage, fileName: String) -> ClaudeAttachmentPayload? {
+            let maxDimension: CGFloat = 1280
+            let size = image.size
+            guard size.width > 0, size.height > 0 else { return nil }
+            let scale = min(1.0, maxDimension / max(size.width, size.height))
+            let targetSize = CGSize(width: round(size.width * scale), height: round(size.height * scale))
+            let renderer = UIGraphicsImageRenderer(size: targetSize)
+            let resized = renderer.image { _ in
+                image.draw(in: CGRect(origin: .zero, size: targetSize))
+            }
+            guard let jpeg = resized.jpegData(compressionQuality: 0.82) else { return nil }
+            let ratio = Double(targetSize.width / max(1, targetSize.height))
+            return ClaudeAttachmentPayload(
+                fileName: fileName, kind: .image, mimeType: "image/jpeg",
+                base64Data: jpeg.base64EncodedString(), aspectRatio: ratio)
+        }
     }
+
+    struct ClaudeSystemCameraPicker: UIViewControllerRepresentable {
+        let onCapture: (UIImage) -> Void
+        let onCancel: () -> Void
+
+        func makeCoordinator() -> Coordinator { Coordinator(onCapture: onCapture, onCancel: onCancel) }
+
+        func makeUIViewController(context: Context) -> UIImagePickerController {
+            let picker = UIImagePickerController()
+            picker.sourceType = .camera
+            picker.delegate = context.coordinator
+            return picker
+        }
+
+        func updateUIViewController(_ uiViewController: UIImagePickerController, context: Context) {}
+
+        @MainActor
+        final class Coordinator: NSObject, UINavigationControllerDelegate, UIImagePickerControllerDelegate {
+            let onCapture: (UIImage) -> Void
+            let onCancel: () -> Void
+
+            init(onCapture: @escaping (UIImage) -> Void, onCancel: @escaping () -> Void) {
+                self.onCapture = onCapture
+                self.onCancel = onCancel
+            }
+
+            func imagePickerController(
+                _ picker: UIImagePickerController,
+                didFinishPickingMediaWithInfo info: [UIImagePickerController.InfoKey: Any]
+            ) {
+                if let image = info[.originalImage] as? UIImage {
+                    onCapture(image)
+                } else {
+                    onCancel()
+                }
+            }
+
+            func imagePickerControllerDidCancel(_ picker: UIImagePickerController) {
+                onCancel()
+            }
+        }
+    }
+
     struct SyntheticPhoto: View {
         let index: Int
         var body: some View {
@@ -312,33 +528,138 @@
             }
         }
     }
-    struct ClaudePlaceholderSheet: View {
-        let title: String
+
+    struct ClaudeConversationSearchSheet: View {
+        let conversations: [ClaudeConversationSummary]
+        let onSelect: (UUID) -> Void
         @Environment(\.dismiss) private var dismiss
-        @State private var enabled = true
+        @State private var query = ""
+
+        private var matches: [ClaudeConversationSummary] {
+            let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else { return conversations }
+            return conversations.filter { conv in
+                conv.title.localizedCaseInsensitiveContains(trimmed)
+                    || conv.messages.contains { $0.text.localizedCaseInsensitiveContains(trimmed) }
+            }
+        }
+
         var body: some View {
-            VStack(spacing: 20) {
-                SheetHeader(title: title, close: { dismiss() })
-                if ["Notifications", "Privacy", "Capabilities", "Time & focus"].contains(title) {
-                    Toggle("\(title) enabled", isOn: $enabled).padding().background(
-                        ClaudePalette.panel, in: .rect(cornerRadius: 24)
-                    ).padding(.horizontal, 16)
-                } else if title == "Search sessions" {
-                    TextField("Search", text: .constant("")).textFieldStyle(.roundedBorder).padding()
+            VStack(spacing: 14) {
+                SheetHeader(title: "Search conversations", close: { dismiss() })
+                HStack(spacing: 10) {
+                    Image(systemName: "magnifyingglass").foregroundStyle(ClaudePalette.secondary)
+                    TextField("Search titles or messages…", text: $query)
+                        .accessibilityIdentifier("conversations.searchField")
+                    if !query.isEmpty {
+                        Button {
+                            query = ""
+                        } label: {
+                            Image(systemName: "xmark.circle.fill").foregroundStyle(ClaudePalette.secondary)
+                        }.buttonStyle(.plain)
+                    }
+                }.padding(.horizontal, 14).frame(height: 44).background(ClaudePalette.panel, in: .capsule)
+                    .padding(.horizontal, 16)
+                if matches.isEmpty {
+                    VStack(spacing: 10) {
+                        Image(systemName: "bubble.left.and.bubble.right").font(.system(size: 32, weight: .light))
+                            .foregroundStyle(ClaudePalette.secondary)
+                        Text(conversations.isEmpty ? "No saved conversations yet" : "No matching conversations")
+                            .font(.system(size: 16, weight: .medium))
+                    }.frame(maxWidth: .infinity).padding(.top, 48)
                 } else {
-                    Image(systemName: "rectangle.on.rectangle").font(.system(size: 34)).foregroundStyle(
-                        ClaudePalette.secondary
-                    ).padding(.top, 35)
-                    Text("\(title)").font(.title2)
+                    ScrollView {
+                        RowGroup {
+                            ForEach(Array(matches.enumerated()), id: \.element.id) { idx, conv in
+                                SheetRow(
+                                    title: conv.title,
+                                    symbol: conv.pinned ? "pin.fill" : "bubble.left",
+                                    detail: conv.messages.last?.text.replacingOccurrences(of: "\n", with: " ")
+                                        .prefix(90).description,
+                                    value: "\(conv.messages.count)"
+                                ) {
+                                    onSelect(conv.id)
+                                    dismiss()
+                                }
+                                if idx + 1 < matches.count { RowDivider() }
+                            }
+                        }.padding(.horizontal, 16)
+                    }
                 }
-                Text(
-                    "This destination is a demo placeholder. Its complete reference interface has not been captured yet."
-                ).font(.footnote).foregroundStyle(ClaudePalette.secondary).multilineTextAlignment(.center).padding(
-                    .horizontal, 30)
-                Spacer()
+                Spacer(minLength: 0)
             }.background(ClaudePalette.background).foregroundStyle(ClaudePalette.ink)
+                .presentationDragIndicator(.visible).presentationCornerRadius(38)
         }
     }
+
+    struct ClaudeRenameConversationSheet: View {
+        let initialTitle: String
+        let onSave: (String) -> Void
+        @Environment(\.dismiss) private var dismiss
+        @State private var title: String
+
+        init(initialTitle: String, onSave: @escaping (String) -> Void) {
+            self.initialTitle = initialTitle
+            self.onSave = onSave
+            _title = State(initialValue: initialTitle)
+        }
+
+        var body: some View {
+            VStack(spacing: 18) {
+                SheetHeader(
+                    title: "Rename conversation", trailing: "Save", close: { dismiss() },
+                    trailingAction: {
+                        let cleaned = title.trimmingCharacters(in: .whitespacesAndNewlines)
+                        if !cleaned.isEmpty { onSave(cleaned) }
+                        dismiss()
+                    })
+                TextField("Conversation title", text: $title)
+                    .font(.system(size: 17))
+                    .padding(.horizontal, 16).frame(height: 50)
+                    .background(ClaudePalette.panel, in: .rect(cornerRadius: 18))
+                    .padding(.horizontal, 16)
+                    .accessibilityIdentifier("conversation.renameField")
+                Spacer()
+            }.background(ClaudePalette.background).foregroundStyle(ClaudePalette.ink)
+                .presentationDetents([.height(240)]).presentationDragIndicator(.visible).presentationCornerRadius(34)
+        }
+    }
+
+    struct ClaudeSelectTextSheet: View {
+        let text: String
+        @Environment(\.dismiss) private var dismiss
+        @State private var copied = false
+
+        var body: some View {
+            VStack(spacing: 12) {
+                SheetHeader(
+                    title: "Select text", trailing: copied ? "Copied" : "Copy all",
+                    close: { dismiss() },
+                    trailingAction: {
+                        UIPasteboard.general.string = text
+                        copied = true
+                    })
+                ScrollView {
+                    Text(verbatim: text)
+                        .font(.system(size: 16))
+                        .textSelection(.enabled)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(16)
+                }.background(ClaudePalette.panel, in: .rect(cornerRadius: 22)).padding(.horizontal, 16)
+                    .padding(.bottom, 16)
+            }.background(ClaudePalette.background).foregroundStyle(ClaudePalette.ink)
+                .presentationDragIndicator(.visible).presentationCornerRadius(38)
+        }
+    }
+
+    struct ClaudeActivityShareSheet: UIViewControllerRepresentable {
+        let items: [Any]
+        func makeUIViewController(context: Context) -> UIActivityViewController {
+            UIActivityViewController(activityItems: items, applicationActivities: nil)
+        }
+        func updateUIViewController(_ uiViewController: UIActivityViewController, context: Context) {}
+    }
+
     struct ThemeThumbnail: View {
         let appearance: ClaudeAppearance
         var body: some View {
@@ -366,6 +687,7 @@
             }
         }
     }
+
     struct ClaudeFeedbackSheet: View {
         let positive: Bool
         var submit: (FeedbackSubmission) -> Void
@@ -402,11 +724,11 @@
                     }
                 }.frame(height: positive ? 185 : 150).background(ClaudePalette.panel, in: .rect(cornerRadius: 24))
                     .padding(.horizontal, 16)
-                Text("Your feedback helps improve Claude. This demo keeps feedback on this device.").font(.footnote)
+                Text("Feedback is stored locally on your device.").font(.footnote)
                     .foregroundStyle(ClaudePalette.secondary).padding(.horizontal, 24)
                 Spacer()
-            }.background(ClaudePalette.background).foregroundStyle(ClaudePalette.ink).presentationDetents([.height(430)]
-            ).presentationDragIndicator(.visible).presentationCornerRadius(38)
+            }.background(ClaudePalette.background).foregroundStyle(ClaudePalette.ink)
+                .presentationDetents([.height(430)]).presentationDragIndicator(.visible).presentationCornerRadius(38)
         }
     }
 #endif

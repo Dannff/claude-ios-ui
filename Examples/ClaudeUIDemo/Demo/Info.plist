@@ -29,5 +29,13 @@
 	</array>
 	<key>CFBundleVersion</key>
 	<string>1</string>
+	<key>NSCameraUsageDescription</key>
+	<string>Take photos to attach and analyze in chat conversations.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Record voice input for live speech-to-text dictation.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Attach photos from your library to chat conversations.</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>Transcribe spoken audio into chat messages on your device.</string>
 </dict>
 </plist>

@@ -99,14 +99,15 @@
                                     }.frame(width: 100, height: 100).background(
                                         ClaudePalette.panel, in: .rect(cornerRadius: 28))
                                 }.accessibilityIdentifier("code.context.camera")
-                                ForEach(0..<3) { index in
-                                    Button {
-                                        action(.samplePhoto(index))
-                                    } label: {
-                                        SyntheticPhoto(index: index).frame(width: 100, height: 100).clipShape(
-                                            .rect(cornerRadius: 28))
-                                    }.accessibilityLabel("Sample landscape \(index + 1)")
-                                }
+                                Button {
+                                    action(.photos)
+                                } label: {
+                                    VStack(spacing: 7) {
+                                        Image(systemName: "photo.on.rectangle").font(.system(size: 22))
+                                        Text("Photos").font(.system(size: 17))
+                                    }.frame(width: 100, height: 100).background(
+                                        ClaudePalette.panel, in: .rect(cornerRadius: 28))
+                                }.accessibilityIdentifier("code.context.photos")
                             }.padding(.horizontal, 16)
                         }.scrollIndicators(.hidden)
                         RowGroup { SheetRow(title: "Add files", symbol: "doc.badge.arrow.up") { action(.files) } }

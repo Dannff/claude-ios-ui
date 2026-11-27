@@ -8,12 +8,32 @@ each release notes how many screenshot references were re-recorded.
 
 ## [Unreleased]
 
+### Added
+
+- Live interactive HTML/SVG chat previews (`ClaudeHTMLPreviewSupport`, `ClaudeInlineHTMLCodeCard`,
+  `ClaudeHTMLPreviewSheet`) rendered via sandboxed `WKWebView` directly inside chat messages and Artifacts, with
+  Preview/Code toggle, Mobile/Desktop viewport mode, JavaScript error bridge, Save to Artifacts, and `.html` export.
+- Keyless DuckDuckGo Web Search & webpage reader (`ClaudeDuckDuckGoSearch`, `ClaudeWebSearchMode`,
+  `ClaudeWebSearchResult`), composer Globe search toggle, clickable citation cards on assistant messages, and
+  OpenAI-compatible agent tools (`web_search`, `read_webpage`, `calculator`, `current_datetime`).
+- Real local workspace persistence (`ClaudeWorkspaceStore`, `ClaudeConversationSummary`, `ClaudeAttachmentPayload`,
+  `ClaudeSlashCommand`) with saved/pinned/searchable conversations, Markdown conversation export, real `PhotosPicker`,
+  camera, and `.fileImporter` multimodal attachments, `AVSpeechSynthesizer` read-aloud, and live `SFSpeechRecognizer`
+  dictation; all demo fixtures are removed from normal app launches.
+- OpenAI-compatible Bring Your Own Key (BYOK) provider settings (`ClaudeBYOKState`, `ClaudeBYOKConfiguration`,
+  `ClaudeBYOKPreset`, `ClaudeBYOKAction` and `.apiProvider(ClaudeBYOKAction)` on `ClaudeSettingsAction`; adopters
+  switching with `@unknown default` will see a warning for the new case), plus live SSE/JSON completion, model
+  discovery and Keychain API-key storage in `ClaudeUIDemo`.
+
 ### Changed
 
 - The install line in the README and the integration guide now starts new adopters on 0.2.0.
 
 ### Fixed
 
+- CI runs the public API compatibility check inside the `checks` job on `macos-26-intel` (avoiding GitHub's
+  congested `macos-26` arm64 runner queue), resolves release tags from the parent repository when running in a
+  tagless fork, builds an ad-hoc signed `ClaudeUIDemo.ipa` (`arm64` Release), and publishes it to GitHub Releases.
 - The accessibility baseline no longer lists the 28 text-size findings that the Notifications settings change in
   0.2.0 resolved, so a regression on that screen is caught again.
 - UI tests wait for an element to stop moving before a tap that directly follows another tap. A tap sent while a

@@ -69,6 +69,7 @@ public struct ClaudeArtifact: Identifiable, Equatable, Sendable {
         toggleSection(String)
     case markdown(MarkdownAction)
     case share(String), comments(String), tabs(String), undo(String), redo(String)
+    case togglePin(String), delete(String)
 }
 /// Presentation only: no remote documents, permissions or edit history are modified.
 public struct ArtifactsState: Equatable, Sendable {
@@ -112,5 +113,13 @@ public struct ArtifactsState: Equatable, Sendable {
             if !collapsedSections.insert(id).inserted { collapsedSections.remove(id) }
         default: break
         }
+    }
+    public mutating func togglePinned(id: String) {
+        guard let index = items.firstIndex(where: { $0.id == id }) else { return }
+        items[index].pinned.toggle()
+    }
+    public mutating func remove(id: String) {
+        items.removeAll { $0.id == id }
+        if selectedID == id { reduce(.close) }
     }
 }

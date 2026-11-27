@@ -276,6 +276,7 @@ extension SessionState {
         self.code.draft.branchesByRepository = [
             "sample": [.init(id: "main", name: "main", isDefault: true), .init(id: "feature", name: "sample_branch")]
         ]
+        self.projects.suggestedRepository = "example/garden-plan"
     }
 }
 

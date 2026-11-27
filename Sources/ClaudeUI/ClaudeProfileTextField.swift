@@ -10,7 +10,10 @@
         let identifier: String
         let update: (String) -> Void
         var isURL: Bool = false
-        func makeCoordinator() -> Coordinator { Coordinator(update: update) }
+        var isSecure: Bool = false
+        var disablesAutocapitalization: Bool = false
+        var revision: Int = 0
+        func makeCoordinator() -> Coordinator { Coordinator(update: update, revision: revision) }
         func makeUIView(context: Context) -> UITextField {
             let field = UITextField()
             field.text = text
@@ -19,9 +22,21 @@
             field.textColor = .label
             field.autocorrectionType = .no
             field.spellCheckingType = .no
-            field.textContentType = isURL ? .URL : .name
-            field.keyboardType = isURL ? .URL : .default
-            if isURL { field.autocapitalizationType = .none }
+            field.isSecureTextEntry = isSecure
+            if isSecure {
+                field.textContentType = .password
+                field.autocapitalizationType = .none
+            } else if isURL {
+                field.textContentType = .URL
+                field.keyboardType = .URL
+                field.autocapitalizationType = .none
+            } else if disablesAutocapitalization {
+                field.textContentType = .none
+                field.keyboardType = .asciiCapable
+                field.autocapitalizationType = .none
+            } else {
+                field.textContentType = .name
+            }
             field.accessibilityIdentifier = identifier
             field.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
             field.addTarget(context.coordinator, action: #selector(Coordinator.changed(_:)), for: .editingChanged)
@@ -29,11 +44,18 @@
         }
         func updateUIView(_ field: UITextField, context: Context) {
             context.coordinator.update = update
-            if !field.isFirstResponder, field.text != text { field.text = text }
+            if field.isSecureTextEntry != isSecure { field.isSecureTextEntry = isSecure }
+            let revisionChanged = context.coordinator.revision != revision
+            context.coordinator.revision = revision
+            if (!field.isFirstResponder || revisionChanged), field.text != text { field.text = text }
         }
         final class Coordinator: NSObject {
             var update: (String) -> Void
-            init(update: @escaping (String) -> Void) { self.update = update }
+            var revision: Int
+            init(update: @escaping (String) -> Void, revision: Int) {
+                self.update = update
+                self.revision = revision
+            }
             @objc func changed(_ field: UITextField) { update(field.text ?? "") }
         }
     }
