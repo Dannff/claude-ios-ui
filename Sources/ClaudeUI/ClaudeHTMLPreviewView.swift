@@ -264,24 +264,20 @@ public enum ClaudeHTMLPreviewSupport {
             }
 
             public func webView(
-                _ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction,
-                decisionHandler: @escaping @MainActor (WKNavigationActionPolicy) -> Void
-            ) {
+                _ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction
+            ) async -> WKNavigationActionPolicy {
                 guard let url = navigationAction.request.url else {
-                    decisionHandler(.allow)
-                    return
+                    return .allow
                 }
                 let scheme = url.scheme?.lowercased() ?? ""
                 if scheme == "about" || scheme == "data" || scheme == "blob" || url.host == "preview.local" {
-                    decisionHandler(.allow)
-                    return
+                    return .allow
                 }
                 if navigationAction.navigationType == .linkActivated, scheme == "https" || scheme == "http" {
-                    UIApplication.shared.open(url)
-                    decisionHandler(.cancel)
-                    return
+                    await UIApplication.shared.open(url)
+                    return .cancel
                 }
-                decisionHandler(.allow)
+                return .allow
             }
         }
     }

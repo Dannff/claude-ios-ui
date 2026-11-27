@@ -874,14 +874,9 @@ struct ClaudeDemoApp: App {
 }
 
 @MainActor
-final class SpeechSynthesizerController: NSObject, AVSpeechSynthesizerDelegate {
+final class SpeechSynthesizerController {
     private let synthesizer = AVSpeechSynthesizer()
     private var activeMessageID: UUID?
-
-    override init() {
-        super.init()
-        synthesizer.delegate = self
-    }
 
     func toggleSpeak(id: UUID, text: String) {
         if synthesizer.isSpeaking, activeMessageID == id {
@@ -920,6 +915,11 @@ final class SpeechSynthesizerController: NSObject, AVSpeechSynthesizerDelegate {
     }
 }
 
+private final class UncheckedAudioBox<T>: @unchecked Sendable {
+    let value: T
+    init(_ value: T) { self.value = value }
+}
+
 @MainActor
 final class LiveSpeechDictationController {
     private var audioEngine: AVAudioEngine?
@@ -927,23 +927,19 @@ final class LiveSpeechDictationController {
     private var recognitionTask: SFSpeechRecognitionTask?
 
     func start(
-        onLevel: @escaping @MainActor (Double) -> Void,
-        onTranscript: @escaping @MainActor (String) -> Void,
-        onError: @escaping @MainActor (String) -> Void
+        onLevel: @escaping @MainActor @Sendable (Double) -> Void,
+        onTranscript: @escaping @MainActor @Sendable (String) -> Void,
+        onError: @escaping @MainActor @Sendable (String) -> Void
     ) {
         stop()
-        SFSpeechRecognizer.requestAuthorization { authStatus in
+        SFSpeechRecognizer.requestAuthorization { [weak self] authStatus in
             Task { @MainActor in
+                guard let self else { return }
                 guard authStatus == .authorized else {
                     onError("Speech recognition permission not granted.")
                     return
                 }
-                let granted: Bool
-                if #available(iOS 17.0, *) {
-                    granted = await AVAudioApplication.requestRecordPermission()
-                } else {
-                    granted = true
-                }
+                let granted = await AVAudioApplication.requestRecordPermission()
                 guard granted else {
                     onError("Microphone permission not granted.")
                     return
@@ -954,9 +950,9 @@ final class LiveSpeechDictationController {
     }
 
     private func beginSession(
-        onLevel: @escaping @MainActor (Double) -> Void,
-        onTranscript: @escaping @MainActor (String) -> Void,
-        onError: @escaping @MainActor (String) -> Void
+        onLevel: @escaping @MainActor @Sendable (Double) -> Void,
+        onTranscript: @escaping @MainActor @Sendable (String) -> Void,
+        onError: @escaping @MainActor @Sendable (String) -> Void
     ) {
         guard let recognizer = SFSpeechRecognizer(locale: Locale.current) ?? SFSpeechRecognizer(),
             recognizer.isAvailable
@@ -972,11 +968,12 @@ final class LiveSpeechDictationController {
             let engine = AVAudioEngine()
             let request = SFSpeechAudioBufferRecognitionRequest()
             request.shouldReportPartialResults = true
+            let requestBox = UncheckedAudioBox(request)
 
             let inputNode = engine.inputNode
             let format = inputNode.outputFormat(forBus: 0)
             inputNode.installTap(onBus: 0, bufferSize: 1024, format: format) { buffer, _ in
-                request.append(buffer)
+                requestBox.value.append(buffer)
                 let rms = Self.computeNormalizedLevel(buffer: buffer)
                 Task { @MainActor in onLevel(rms) }
             }
@@ -986,13 +983,15 @@ final class LiveSpeechDictationController {
             self.audioEngine = engine
             self.recognitionRequest = request
 
-            self.recognitionTask = recognizer.recognitionTask(with: request) { result, error in
+            self.recognitionTask = recognizer.recognitionTask(with: request) { [weak self] result, error in
+                let text = result?.bestTranscription.formattedString
+                let shouldStop = (error != nil && result?.isFinal != true)
                 Task { @MainActor in
-                    if let text = result?.bestTranscription.formattedString {
+                    if let text {
                         onTranscript(text)
                     }
-                    if error != nil && result?.isFinal != true {
-                        self.stop()
+                    if shouldStop {
+                        self?.stop()
                     }
                 }
             }
