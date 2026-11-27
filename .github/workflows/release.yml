@@ -49,9 +49,16 @@ jobs:
 
       - name: CI must have passed on the released commit
         run: |
-          passed=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow ci.yml --commit "$COMMIT" \
-            --status success --json databaseId --jq length)
-          if [ "$passed" -gt 0 ]; then
+          passed=0
+          for n in 1 2 3 4 5; do
+            if passed=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow ci.yml --commit "$COMMIT" \
+              --status success --json databaseId --jq length 2>/dev/null); then
+              break
+            fi
+            dscacheutil -flushcache 2>/dev/null || true
+            sleep 5
+          done
+          if [ "${passed:-0}" -gt 0 ]; then
             echo "CI passed on $COMMIT."
           elif [ "$DRY_RUN" = "true" ]; then
             echo "::warning::No successful CI run for $COMMIT yet. A real release would stop here."
@@ -129,6 +136,13 @@ jobs:
       - name: Publish
         if: ${{ github.event_name == 'push' }}
         run: |
-          gh release create "$TAG_NAME" "$RUNNER_TEMP"/ipa-out/* \
-            --repo "$GITHUB_REPOSITORY" --verify-tag --title "$TAG_NAME" \
-            --notes-file "$RUNNER_TEMP/notes.md" --latest
+          for n in 1 2 3 4 5 6; do
+            if gh release create "$TAG_NAME" "$RUNNER_TEMP"/ipa-out/* \
+              --repo "$GITHUB_REPOSITORY" --verify-tag --title "$TAG_NAME" \
+              --notes-file "$RUNNER_TEMP/notes.md" --latest; then
+              exit 0
+            fi
+            dscacheutil -flushcache 2>/dev/null || true
+            sleep 5
+          done
+          exit 1

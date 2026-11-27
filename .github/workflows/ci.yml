@@ -196,23 +196,33 @@ jobs:
         run: |
           retry() {
             local n=1
-            until "$@"; do
-              if [ "$n" -ge 3 ]; then
+            local max=6
+            local out=""
+            until out=$("$@" 2>&1); do
+              echo "$out" >&2
+              if [ "$n" -ge "$max" ]; then
+                flat_out=$(printf '%s' "$out" | tr '\n' ' ')
+                echo "::error::Command '$1 $2' failed after $max attempts: $flat_out"
                 return 1
               fi
-              echo "Command failed (attempt $n/3); retrying in 5s..."
+              echo "Attempt $n/$max failed; flushing DNS cache and retrying in 5s..." >&2
+              dscacheutil -flushcache 2>/dev/null || true
               n=$((n + 1))
               sleep 5
             done
+            printf '%s\n' "$out"
           }
 
           # Ensure the parallel checks job succeeded before publishing the release.
+          checks_ok="false"
           for attempt in $(seq 1 60); do
             checks_state=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/jobs" \
-              --jq '.jobs[] | select(.name | startswith("Format, project sync")) | "\(.status):\(.conclusion // "")"')
+              --jq '.jobs[] | select(.name | startswith("Format, project sync")) | "\(.status):\(.conclusion // "")"' \
+              2>/dev/null || echo "transient:retry")
             case "$checks_state" in
               completed:success)
                 echo "Checks job passed."
+                checks_ok="true"
                 break
                 ;;
               completed:*)
@@ -220,11 +230,17 @@ jobs:
                 exit 1
                 ;;
               *)
-                echo "Waiting for checks job ($checks_state)..."
+                echo "[$attempt/60] Waiting for checks job ($checks_state)..."
+                dscacheutil -flushcache 2>/dev/null || true
                 sleep 10
                 ;;
             esac
           done
+
+          if [ "$checks_ok" != "true" ]; then
+            echo "::error::Timed out waiting for checks job to complete."
+            exit 1
+          fi
 
           IPA_DIR="$RUNNER_TEMP/ipa-out"
           TAG="ipa-latest"
@@ -267,6 +283,8 @@ jobs:
               --notes-file "$RUNNER_TEMP/release-notes.md" \
               --latest
           fi
+
+          echo "::notice::Published ClaudeUIDemo.ipa ($SIZE) to release '$TAG'."
 
   simulator-tests:
     name: Screenshot and UI tests (iOS 27)
