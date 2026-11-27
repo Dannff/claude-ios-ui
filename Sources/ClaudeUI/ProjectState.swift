@@ -40,7 +40,7 @@ public struct ProjectState: Equatable, Sendable {
     public var visibleProjects: [ClaudeProject] {
         projects.filter { !$0.archived && (filter == .pinned ? $0.pinned : $0.owned) }
     }
-    public var suggestedRepository = "example/garden-plan"
+    public var suggestedRepository = ""
     public var environments: [String] = ["Cloud", "Default"]
     public private(set) var editor: ProjectEditor?
     public private(set) var hasSeenIntroduction = false

@@ -96,6 +96,10 @@ jobs:
           /usr/libexec/PlistBuddy -c "Add :NSAppTransportSecurity dict" "$APP_BUNDLE/Info.plist" 2>/dev/null || true
           /usr/libexec/PlistBuddy -c "Set :NSAppTransportSecurity:NSAllowsLocalNetworking true" "$APP_BUNDLE/Info.plist" 2>/dev/null || \
             /usr/libexec/PlistBuddy -c "Add :NSAppTransportSecurity:NSAllowsLocalNetworking bool true" "$APP_BUNDLE/Info.plist"
+          /usr/libexec/PlistBuddy -c "Add :NSCameraUsageDescription string 'Take photos to attach and analyze in chat conversations.'" "$APP_BUNDLE/Info.plist" 2>/dev/null || true
+          /usr/libexec/PlistBuddy -c "Add :NSMicrophoneUsageDescription string 'Record voice input for live speech-to-text dictation.'" "$APP_BUNDLE/Info.plist" 2>/dev/null || true
+          /usr/libexec/PlistBuddy -c "Add :NSPhotoLibraryUsageDescription string 'Attach photos from your library to chat conversations.'" "$APP_BUNDLE/Info.plist" 2>/dev/null || true
+          /usr/libexec/PlistBuddy -c "Add :NSSpeechRecognitionUsageDescription string 'Transcribe spoken audio into chat messages on your device.'" "$APP_BUNDLE/Info.plist" 2>/dev/null || true
 
           find "$APP_BUNDLE" -name "_CodeSignature" -type d -prune -exec rm -rf {} +
 

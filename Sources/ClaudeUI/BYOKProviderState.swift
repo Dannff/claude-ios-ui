@@ -5,8 +5,11 @@ public enum ClaudeBYOKPreset: String, CaseIterable, Codable, Equatable, Sendable
     case openRouter = "OpenRouter"
     case groq = "Groq"
     case deepSeek = "DeepSeek"
+    case gemini = "Google Gemini"
     case mistral = "Mistral"
     case together = "Together AI"
+    case ollama = "Ollama (Local)"
+    case lmStudio = "LM Studio (Local)"
     case custom = "Custom"
 
     public var defaultBaseURL: String {
@@ -15,8 +18,11 @@ public enum ClaudeBYOKPreset: String, CaseIterable, Codable, Equatable, Sendable
         case .openRouter: "https://openrouter.ai/api/v1"
         case .groq: "https://api.groq.com/openai/v1"
         case .deepSeek: "https://api.deepseek.com/v1"
+        case .gemini: "https://generativelanguage.googleapis.com/v1beta/openai"
         case .mistral: "https://api.mistral.ai/v1"
         case .together: "https://api.together.xyz/v1"
+        case .ollama: "http://localhost:11434/v1"
+        case .lmStudio: "http://localhost:1234/v1"
         case .custom: ""
         }
     }
@@ -27,8 +33,11 @@ public enum ClaudeBYOKPreset: String, CaseIterable, Codable, Equatable, Sendable
         case .openRouter: "anthropic/claude-sonnet-4"
         case .groq: "llama-3.3-70b-versatile"
         case .deepSeek: "deepseek-chat"
+        case .gemini: "gemini-2.5-flash"
         case .mistral: "mistral-large-latest"
         case .together: "meta-llama/Llama-3.3-70B-Instruct-Turbo"
+        case .ollama: "llama3.2"
+        case .lmStudio: "local-model"
         case .custom: ""
         }
     }
@@ -60,13 +69,18 @@ public struct ClaudeBYOKConfiguration: Codable, Equatable, Sendable {
     public var modelID: String
     public var systemPrompt: String
     public var streamResponses: Bool
+    public var temperature: Double
+    public var webSearchMode: ClaudeWebSearchMode
+    public var enableAgentTools: Bool
     public var customHeaders: [ClaudeBYOKHeader]
 
     public init(
         isEnabled: Bool = false, preset: ClaudeBYOKPreset = .openAI, customName: String = "",
         baseURL: String = ClaudeBYOKPreset.openAI.defaultBaseURL, apiKey: String = "",
         modelID: String = ClaudeBYOKPreset.openAI.defaultModel, systemPrompt: String = "",
-        streamResponses: Bool = true, customHeaders: [ClaudeBYOKHeader] = []
+        streamResponses: Bool = true, temperature: Double = 0.7,
+        webSearchMode: ClaudeWebSearchMode = .auto, enableAgentTools: Bool = true,
+        customHeaders: [ClaudeBYOKHeader] = []
     ) {
         self.isEnabled = isEnabled
         self.preset = preset
@@ -76,7 +90,37 @@ public struct ClaudeBYOKConfiguration: Codable, Equatable, Sendable {
         self.modelID = modelID
         self.systemPrompt = systemPrompt
         self.streamResponses = streamResponses
+        self.temperature = Self.clampTemperature(temperature)
+        self.webSearchMode = webSearchMode
+        self.enableAgentTools = enableAgentTools
         self.customHeaders = customHeaders
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case isEnabled, preset, customName, baseURL, apiKey, modelID, systemPrompt
+        case streamResponses, temperature, webSearchMode, enableAgentTools, customHeaders
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        isEnabled = try c.decodeIfPresent(Bool.self, forKey: .isEnabled) ?? false
+        preset = try c.decodeIfPresent(ClaudeBYOKPreset.self, forKey: .preset) ?? .openAI
+        customName = try c.decodeIfPresent(String.self, forKey: .customName) ?? ""
+        baseURL = try c.decodeIfPresent(String.self, forKey: .baseURL) ?? preset.defaultBaseURL
+        apiKey = try c.decodeIfPresent(String.self, forKey: .apiKey) ?? ""
+        modelID = try c.decodeIfPresent(String.self, forKey: .modelID) ?? preset.defaultModel
+        systemPrompt = try c.decodeIfPresent(String.self, forKey: .systemPrompt) ?? ""
+        streamResponses = try c.decodeIfPresent(Bool.self, forKey: .streamResponses) ?? true
+        let rawTemp = try c.decodeIfPresent(Double.self, forKey: .temperature) ?? 0.7
+        temperature = Self.clampTemperature(rawTemp)
+        webSearchMode = try c.decodeIfPresent(ClaudeWebSearchMode.self, forKey: .webSearchMode) ?? .auto
+        enableAgentTools = try c.decodeIfPresent(Bool.self, forKey: .enableAgentTools) ?? true
+        customHeaders = try c.decodeIfPresent([ClaudeBYOKHeader].self, forKey: .customHeaders) ?? []
+    }
+
+    public static func clampTemperature(_ value: Double) -> Double {
+        guard value.isFinite else { return 0.7 }
+        return min(2.0, max(0.0, (value * 10).rounded() / 10))
     }
 
     public var trimmedBaseURL: String { baseURL.trimmingCharacters(in: .whitespacesAndNewlines) }
@@ -176,6 +220,9 @@ public enum ClaudeBYOKConnectionStatus: Equatable, Sendable {
     case selectDiscoveredModel(String)
     case editSystemPrompt(String)
     case setStreamResponses(Bool)
+    case setTemperature(Double)
+    case setWebSearchMode(ClaudeWebSearchMode)
+    case setAgentTools(Bool)
     case addHeader
     case editHeaderName(id: String, String)
     case editHeaderValue(id: String, String)
@@ -259,6 +306,12 @@ public struct ClaudeBYOKState: Equatable, Sendable {
             configuration.systemPrompt = value
         case .setStreamResponses(let enabled):
             configuration.streamResponses = enabled
+        case .setTemperature(let value):
+            configuration.temperature = ClaudeBYOKConfiguration.clampTemperature(value)
+        case .setWebSearchMode(let mode):
+            configuration.webSearchMode = mode
+        case .setAgentTools(let enabled):
+            configuration.enableAgentTools = enabled
         case .addHeader:
             configuration.customHeaders.append(.init())
         case .editHeaderName(let id, let name):

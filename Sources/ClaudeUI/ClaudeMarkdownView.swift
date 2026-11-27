@@ -159,12 +159,24 @@
                         }
                     }.accessibilityIdentifier("markdown.list"))
             case .code(let language, let content):
+                if ClaudeHTMLPreviewSupport.isPreviewableCode(language: language, content: content) {
+                    return AnyView(
+                        ClaudeInlineHTMLCodeCard(
+                            language: language, content: content, theme: theme,
+                            codeView: { AnyView(codeText(language: language, content: content)) },
+                            onAction: onAction))
+                }
                 return AnyView(
                     VStack(alignment: .leading, spacing: 0) {
                         HStack {
                             Text(language ?? "").font(.system(size: 14, design: .monospaced)).foregroundStyle(
                                 theme.secondary)
                             Spacer()
+                            Button {
+                                onAction(.saveArtifact(language: language, content: content))
+                            } label: {
+                                Image(systemName: "plus.square.on.square").frame(width: 28, height: 28)
+                            }.accessibilityLabel("Save as artifact")
                             Button {
                                 onAction(.copyCode(content))
                             } label: {
@@ -216,6 +228,13 @@
                     }.accessibilityIdentifier("markdown.table"))
             case .unsupported(let kind, let source):
                 if let unsupportedContent { return unsupportedContent(kind, source) }
+                if kind == .html, ClaudeHTMLPreviewSupport.isSubstantialRawHTML(source) {
+                    return AnyView(
+                        ClaudeInlineHTMLCodeCard(
+                            language: "html", content: source, theme: theme,
+                            codeView: { AnyView(codeText(language: "html", content: source)) },
+                            onAction: onAction))
+                }
                 return AnyView(
                     Text(verbatim: source).font(theme.codeFont).textSelection(.enabled).contextMenu {
                         Button("Open content") { onAction(.unsupported(kind: kind, source: source)) }

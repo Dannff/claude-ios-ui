@@ -6,11 +6,16 @@ public struct ChatMessage: Identifiable, Equatable, Sendable {
     public var role: Role
     public var text: String
     public var media: [ClaudeMedia]
-    public init(id: UUID = UUID(), role: Role, text: String, media: [ClaudeMedia] = []) {
+    public var searchSources: [ClaudeWebSearchResult]
+    public init(
+        id: UUID = UUID(), role: Role, text: String, media: [ClaudeMedia] = [],
+        searchSources: [ClaudeWebSearchResult] = []
+    ) {
         self.id = id
         self.role = role
         self.text = text
         self.media = media
+        self.searchSources = searchSources
     }
 }
 
@@ -26,8 +31,8 @@ public enum ClaudeModel: String, CaseIterable, Sendable {
         switch self {
         case .fable: "For your toughest challenges"
         case .opus: "For complex work and everyday tasks"
-        case .sonnet: "Most efficient for simpler tasks"
         case .haiku: "Fastest for quick answers"
+        case .sonnet: "Most efficient for simpler tasks"
         }
     }
 }
@@ -46,6 +51,10 @@ public struct FeedbackSubmission: Equatable, Sendable {
     case send(String), stop, startDictation, stopDictation, cancelDictation, commitDictation
     case newSession, selectModel(ClaudeModel), selectEffort(Effort), setAutomaticApproval(Bool)
     case setDeviceEnabled(Bool), toggleTemporary, startVoice, attach(String), removeAttachment(String)
+    case attachPayload(ClaudeAttachmentPayload)
+    case toggleWebSearch, selectActiveProject(UUID?)
+    case selectConversation(UUID), deleteConversation(UUID), togglePinConversation(UUID)
+    case renameConversation(UUID, String), exportConversation
     case beginEditing(UUID), cancelEditing
     case devices(DeviceAction)
     case openDispatch, dispatch(DispatchAction)
@@ -65,6 +74,12 @@ public struct SessionState: Equatable, Sendable {
     public var appearance: ClaudeAppearance = .dark
     public var draft = ""
     public var messages: [ChatMessage] = []
+    public var conversations: [ClaudeConversationSummary] = []
+    public var activeConversationID: UUID?
+    public var activeProjectID: UUID?
+    public var webSearchEnabled = false
+    public var streamingStatus: String?
+    private var pendingSources: [ClaudeWebSearchResult] = []
     public var phase: ComposerPhase = .idle
     public private(set) var responseID: UUID?
     public var model: ClaudeModel = .opus
@@ -87,10 +102,11 @@ public struct SessionState: Equatable, Sendable {
     public var voice: ClaudeVoice = .suave
     public var voiceLanguage = "Spanish (Latin America)"
     public var attachments: [String] = []
+    public var attachmentPayloads: [ClaudeAttachmentPayload] = []
     public var media = ClaudeMediaState()
     public var transcript = ""
     /// Host-supplied UI levels only. Nonfinite values become silence, values clamp
-    /// to 0...1, and only the newest256 samples are retained. No audio is captured.
+    /// to 0...1, and only the newest 256 samples are retained. No audio is captured.
     public var dictationLevels: [Double] = [] {
         didSet { dictationLevels = DictationWaveformMetrics.normalized(dictationLevels) }
     }
@@ -141,8 +157,11 @@ public struct SessionState: Equatable, Sendable {
             }
             draft = ""
             attachments = []
+            attachmentPayloads = []
             media.draft = []
             media.reduce(.close)
+            streamingStatus = nil
+            pendingSources = []
             phase = .streaming
             responseID = UUID()
         case .beginEditing(let target):
@@ -173,6 +192,8 @@ public struct SessionState: Equatable, Sendable {
             if phase == .streaming {
                 phase = .idle
                 responseID = nil
+                streamingStatus = nil
+                pendingSources = []
             }
         case .startDictation:
             guard phase == .idle, !voiceActive else { return }
@@ -190,7 +211,7 @@ public struct SessionState: Equatable, Sendable {
                 phase = .idle
             } else {
                 phase = .recordingPaused
-            }  // Content-bearing stop remains an unverified host-preview state.
+            }
         case .cancelDictation:
             guard phase == .recording || phase == .recordingPaused else { return }
             draft = draftBeforeDictation
@@ -207,7 +228,8 @@ public struct SessionState: Equatable, Sendable {
             let model = model, effort = effort, automatic = automaticApproval, device = deviceEnabled,
                 appearance = appearance, voice = voice, language = voiceLanguage, devices = devices,
                 dispatch = dispatch, code = code, projects = projects, artifacts = artifacts,
-                recentMedia = media.recent, settings = settings
+                recentMedia = media.recent, settings = settings, conversations = conversations,
+                activeProjectID = activeProjectID, webSearchEnabled = webSearchEnabled
             self = SessionState()
             self.settings = settings
             self.settings.reduce(.close)
@@ -227,12 +249,19 @@ public struct SessionState: Equatable, Sendable {
             self.voiceLanguage = language
             self.model = model
             self.effort = effort
+            self.conversations = conversations
+            self.activeProjectID = activeProjectID
+            self.webSearchEnabled = webSearchEnabled
             automaticApproval = automatic
             deviceEnabled = device
         case .settings(let action):
             settings.reduce(action)
             if case .setAppearance(let value) = action { appearance = value }
-        case .media(let action): media.reduce(action)
+        case .media(let action):
+            if case .removeDraft(let id) = action {
+                attachmentPayloads.removeAll { $0.id == id }
+            }
+            media.reduce(action)
         case .devices(let action): devices.reduce(action)
         case .openArtifacts:
             showingArtifacts = true
@@ -267,11 +296,31 @@ public struct SessionState: Equatable, Sendable {
         case .setAutomaticApproval(let value): automaticApproval = value
         case .setDeviceEnabled(let value): deviceEnabled = value
         case .toggleTemporary: temporary.toggle()
+        case .toggleWebSearch: webSearchEnabled.toggle()
+        case .selectActiveProject(let id): activeProjectID = id
         case .attach(let name): if !attachments.contains(name) { attachments.append(name) }
-        case .removeAttachment(let name): attachments.removeAll { $0 == name }
+        case .attachPayload(let payload):
+            attachmentPayloads.removeAll { $0.id == payload.id || $0.fileName == payload.fileName }
+            attachmentPayloads.append(payload)
+            if payload.kind == .image {
+                if !media.draft.contains(where: { $0.id == payload.id }) {
+                    media.draft.append(
+                        .init(
+                            id: payload.id, fileName: payload.fileName,
+                            accessibilityDescription: payload.fileName,
+                            aspectRatio: payload.aspectRatio, kind: .image))
+                }
+            } else if !attachments.contains(payload.fileName) {
+                attachments.append(payload.fileName)
+            }
+        case .removeAttachment(let name):
+            attachments.removeAll { $0 == name }
+            attachmentPayloads.removeAll { $0.fileName == name }
         case .retry:
             if phase == .idle, editingMessageID == nil, messages.contains(where: { $0.role == .user }) {
                 if messages.last?.role == .assistant { messages.removeLast() }
+                streamingStatus = nil
+                pendingSources = []
                 phase = .streaming
                 responseID = UUID()
             }
@@ -284,7 +333,41 @@ public struct SessionState: Equatable, Sendable {
         case .toggleVoiceOutput: if voiceActive { voiceOutputMuted.toggle() }
         case .selectVoice(let value): voice = value
         case .selectVoiceLanguage(let value): voiceLanguage = value
-        case .copy, .share, .readAloud, .feedback, .voiceFeedback, .markdown: break
+        case .copy, .share, .readAloud, .feedback, .voiceFeedback, .markdown,
+            .selectConversation, .deleteConversation, .togglePinConversation,
+            .renameConversation, .exportConversation:
+            break
+        }
+    }
+    /// Loads a persisted conversation into the active session.
+    public mutating func openConversation(_ conversation: ClaudeConversationSummary) {
+        if phase == .streaming {
+            phase = .idle
+            responseID = nil
+        }
+        clearEditing()
+        showingArtifacts = false
+        showingProjects = false
+        showingCode = false
+        showingDispatch = false
+        dispatch.reduce(.close)
+        activeConversationID = conversation.id
+        if let projectID = conversation.projectID {
+            activeProjectID = projectID
+        }
+        streamingStatus = nil
+        pendingSources = []
+        messages = conversation.messages.map { $0.toChatMessage() }
+    }
+    public mutating func setStreamingStatus(_ status: String?, responseID: UUID) {
+        guard phase == .streaming, self.responseID == responseID else { return }
+        streamingStatus = status
+    }
+    public mutating func setResponseSources(_ sources: [ClaudeWebSearchResult], responseID: UUID) {
+        guard phase == .streaming, self.responseID == responseID else { return }
+        pendingSources = sources
+        if messages.last?.role == .assistant {
+            messages[messages.count - 1].searchSources = sources
         }
     }
     /// Backends and demos both deliver response text here. Late chunks after Stop are ignored.
@@ -292,14 +375,19 @@ public struct SessionState: Equatable, Sendable {
         guard phase == .streaming, self.responseID == responseID else { return }
         if messages.last?.role == .assistant {
             messages[messages.count - 1].text += text
+            if !pendingSources.isEmpty && messages[messages.count - 1].searchSources.isEmpty {
+                messages[messages.count - 1].searchSources = pendingSources
+            }
         } else {
-            messages.append(.init(role: .assistant, text: text))
+            messages.append(.init(role: .assistant, text: text, searchSources: pendingSources))
         }
     }
     public mutating func finishResponse(responseID: UUID) {
         if phase == .streaming, self.responseID == responseID {
             phase = .idle
             self.responseID = nil
+            streamingStatus = nil
+            pendingSources = []
         }
     }
 }

@@ -10,6 +10,16 @@ each release notes how many screenshot references were re-recorded.
 
 ### Added
 
+- Live interactive HTML/SVG chat previews (`ClaudeHTMLPreviewSupport`, `ClaudeInlineHTMLCodeCard`,
+  `ClaudeHTMLPreviewSheet`) rendered via sandboxed `WKWebView` directly inside chat messages and Artifacts, with
+  Preview/Code toggle, Mobile/Desktop viewport mode, JavaScript error bridge, Save to Artifacts, and `.html` export.
+- Keyless DuckDuckGo Web Search & webpage reader (`ClaudeDuckDuckGoSearch`, `ClaudeWebSearchMode`,
+  `ClaudeWebSearchResult`), composer Globe search toggle, clickable citation cards on assistant messages, and
+  OpenAI-compatible agent tools (`web_search`, `read_webpage`, `calculator`, `current_datetime`).
+- Real local workspace persistence (`ClaudeWorkspaceStore`, `ClaudeConversationSummary`, `ClaudeAttachmentPayload`,
+  `ClaudeSlashCommand`) with saved/pinned/searchable conversations, Markdown conversation export, real `PhotosPicker`,
+  camera, and `.fileImporter` multimodal attachments, `AVSpeechSynthesizer` read-aloud, and live `SFSpeechRecognizer`
+  dictation; all demo fixtures are removed from normal app launches.
 - OpenAI-compatible Bring Your Own Key (BYOK) provider settings (`ClaudeBYOKState`, `ClaudeBYOKConfiguration`,
   `ClaudeBYOKPreset`, `ClaudeBYOKAction` and `.apiProvider(ClaudeBYOKAction)` on `ClaudeSettingsAction`; adopters
   switching with `@unknown default` will see a warning for the new case), plus live SSE/JSON completion, model

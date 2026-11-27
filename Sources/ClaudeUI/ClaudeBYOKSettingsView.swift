@@ -13,8 +13,10 @@
                     sectionLabel("Provider")
                     providerGroup
                     resolvedEndpointCaption
-                    sectionLabel("Model & streaming")
+                    sectionLabel("Model & generation")
                     modelGroup
+                    sectionLabel("Web search & tools")
+                    toolsGroup
                     sectionLabel("Custom headers")
                     headersGroup
                     connectionGroup
@@ -158,11 +160,72 @@
                 ).scaledFont(17).tint(ClaudeSettingsColors.switchTint).padding(.horizontal, 16).frame(height: 52)
                     .accessibilityIdentifier("settings.byok.stream")
                 RowDivider()
+                HStack(spacing: 10) {
+                    Text("Temperature").scaledFont(17)
+                    Spacer()
+                    Text(String(format: "%.1f", state.configuration.temperature))
+                        .font(.system(size: 15, design: .monospaced)).foregroundStyle(ClaudePalette.secondary)
+                    Stepper(
+                        "Temperature",
+                        value: Binding(
+                            get: { state.configuration.temperature },
+                            set: { action(.setTemperature($0)) }),
+                        in: 0.0...2.0, step: 0.1
+                    ).labelsHidden()
+                }.padding(.horizontal, 16).frame(height: 52)
+                RowDivider()
                 fieldRow(
                     title: "System", text: state.configuration.systemPrompt,
                     placeholder: "Optional system instructions", identifier: "settings.byok.systemPrompt",
                     disablesAutocapitalization: false
                 ) { action(.editSystemPrompt($0)) }
+            }
+        }
+
+        private var toolsGroup: some View {
+            RowGroup {
+                HStack {
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text("DuckDuckGo Web Search").scaledFont(17)
+                        Text(state.configuration.webSearchMode.detail)
+                            .scaledFont(12, relativeTo: .caption).foregroundStyle(ClaudePalette.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    Spacer()
+                    Menu {
+                        Picker(
+                            "Web Search",
+                            selection: Binding(
+                                get: { state.configuration.webSearchMode },
+                                set: { action(.setWebSearchMode($0)) })
+                        ) {
+                            ForEach(ClaudeWebSearchMode.allCases, id: \.self) { mode in
+                                Text(mode.rawValue).tag(mode)
+                            }
+                        }
+                    } label: {
+                        HStack(spacing: 5) {
+                            Text(state.configuration.webSearchMode.rawValue)
+                            Image(systemName: "chevron.up.chevron.down").font(.system(size: 12, weight: .semibold))
+                        }.scaledFont(16).foregroundStyle(ClaudeSettingsColors.switchTint).frame(minHeight: 44)
+                    }.accessibilityIdentifier("settings.byok.webSearchMode")
+                }.padding(.horizontal, 16).padding(.vertical, 12)
+                RowDivider()
+                HStack(spacing: 8) {
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text("Agent tools").scaledFont(17)
+                        Text("Allows web_search, read_webpage, calculator, and current_datetime tool calls.")
+                            .scaledFont(12, relativeTo: .caption).foregroundStyle(ClaudePalette.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }.frame(maxWidth: .infinity, alignment: .leading)
+                    Toggle(
+                        "Agent tools",
+                        isOn: Binding(
+                            get: { state.configuration.enableAgentTools },
+                            set: { action(.setAgentTools($0)) })
+                    ).labelsHidden().tint(ClaudeSettingsColors.switchTint).frame(width: 63)
+                        .accessibilityIdentifier("settings.byok.agentTools")
+                }.padding(.horizontal, 16).padding(.vertical, 12)
             }
         }
 

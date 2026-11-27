@@ -55,29 +55,70 @@
                     }
                 }.frame(height: 48).padding(.horizontal, 16).padding(.top, -2)
                 ScrollView {
-                    LazyVStack(spacing: 16) {
-                        ForEach(state.visibleItems) { item in
-                            Button {
-                                action(.open(item.id))
-                            } label: {
-                                HStack(alignment: .top, spacing: 8) {
-                                    preview(item).frame(width: 134, height: 70).clipShape(.rect(cornerRadius: 17))
-                                    VStack(alignment: .leading, spacing: 4) {
-                                        Text(item.title).font(.system(size: 16, weight: .medium)).lineLimit(1)
-                                        Label(item.privacy, systemImage: "lock").font(.system(size: 14))
-                                            .foregroundStyle(ClaudePalette.secondary)
-                                        Spacer(minLength: 0)
-                                        Text(item.edited).font(.system(size: 14)).foregroundStyle(
-                                            ClaudePalette.secondary
-                                        ).lineLimit(1)
-                                    }.frame(maxWidth: .infinity, alignment: .leading).frame(height: 70)
-                                }.padding(7).overlay {
-                                    RoundedRectangle(cornerRadius: 24).stroke(
-                                        ClaudePalette.ink.opacity(0.12), lineWidth: 1)
-                                }.contentShape(.rect)
-                            }.buttonStyle(.plain).accessibilityIdentifier("artifact.row.\(item.id)")
-                        }
-                    }.padding(.horizontal, 16).padding(.top, 25).padding(.bottom, 60)
+                    if state.visibleItems.isEmpty {
+                        VStack(spacing: 12) {
+                            Image(systemName: "square.stack.3d.up").font(.system(size: 36, weight: .light))
+                                .foregroundStyle(ClaudePalette.secondary)
+                            Text(state.items.isEmpty ? "No artifacts yet" : "No matching artifacts")
+                                .font(.system(size: 18, weight: .medium))
+                            Text(
+                                state.items.isEmpty
+                                    ? "Generate HTML previews or code in chat and tap Save to keep artifacts here."
+                                    : "Try changing your search or filters."
+                            ).font(.system(size: 14)).foregroundStyle(ClaudePalette.secondary)
+                                .multilineTextAlignment(.center).padding(.horizontal, 32)
+                        }.frame(maxWidth: .infinity).padding(.top, 72).accessibilityIdentifier("artifacts.empty")
+                    } else {
+                        LazyVStack(spacing: 16) {
+                            ForEach(state.visibleItems) { item in
+                                Button {
+                                    action(.open(item.id))
+                                } label: {
+                                    HStack(alignment: .top, spacing: 8) {
+                                        preview(item).frame(width: 134, height: 70).clipShape(.rect(cornerRadius: 17))
+                                        VStack(alignment: .leading, spacing: 4) {
+                                            HStack(spacing: 5) {
+                                                if item.pinned {
+                                                    Image(systemName: "pin.fill").font(.system(size: 11))
+                                                        .foregroundStyle(ClaudePalette.orange)
+                                                }
+                                                Text(item.title).font(.system(size: 16, weight: .medium)).lineLimit(1)
+                                            }
+                                            Label(item.privacy, systemImage: "lock").font(.system(size: 14))
+                                                .foregroundStyle(ClaudePalette.secondary)
+                                            Spacer(minLength: 0)
+                                            Text(item.edited).font(.system(size: 14)).foregroundStyle(
+                                                ClaudePalette.secondary
+                                            ).lineLimit(1)
+                                        }.frame(maxWidth: .infinity, alignment: .leading).frame(height: 70)
+                                    }.padding(7).overlay {
+                                        RoundedRectangle(cornerRadius: 24).stroke(
+                                            ClaudePalette.ink.opacity(0.12), lineWidth: 1)
+                                    }.contentShape(.rect)
+                                }.buttonStyle(.plain)
+                                    .contextMenu {
+                                        Button {
+                                            action(.togglePin(item.id))
+                                        } label: {
+                                            Label(
+                                                item.pinned ? "Unpin" : "Pin",
+                                                systemImage: item.pinned ? "pin.slash" : "pin")
+                                        }
+                                        Button {
+                                            action(.share(item.id))
+                                        } label: {
+                                            Label("Share", systemImage: "square.and.arrow.up")
+                                        }
+                                        Button(role: .destructive) {
+                                            action(.delete(item.id))
+                                        } label: {
+                                            Label("Delete", systemImage: "trash")
+                                        }
+                                    }
+                                    .accessibilityIdentifier("artifact.row.\(item.id)")
+                            }
+                        }.padding(.horizontal, 16).padding(.top, 25).padding(.bottom, 60)
+                    }
                 }.scrollIndicators(.hidden)
             }.overlay(alignment: .bottom) {
                 HStack(spacing: 10) {
