@@ -51,7 +51,7 @@ import Testing
     #expect(htmlResults[0].title == "Swift.org & Blog")
     #expect(htmlResults[0].url == "https://swift.org/blog/")
     #expect(htmlResults[0].domain == "swift.org")
-    #expect(htmlResults[0].snippet == "Official announcements for Swift6.")
+    #expect(htmlResults[0].snippet == "Official announcements for Swift 6.")
 
     let instantJSON: [String: Any] = [
         "Heading": "DuckDuckGo",

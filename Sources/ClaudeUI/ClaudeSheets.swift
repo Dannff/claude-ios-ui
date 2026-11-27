@@ -222,7 +222,8 @@
                             RowGroup {
                                 ForEach(Array(state.devices.rows.enumerated()), id: \.element.id) { idx, row in
                                     SheetRow(
-                                        title: row.name, detail: row.subtitle,
+                                        title: row.name,
+                                        detail: row.status == .connected ? "Connected" : nil,
                                         checked: state.deviceEnabled
                                     ) { action(.setDeviceEnabled(!state.deviceEnabled)) }
                                     if idx + 1 < state.devices.rows.count { RowDivider() }
